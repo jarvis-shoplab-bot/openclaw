@@ -20,6 +20,7 @@ export type ModelDefinitionConfig = {
   name: string;
   api?: ModelApi;
   reasoning: boolean;
+  cloud?: boolean; // true if model runs on provider's cloud (e.g., Ollama cloud models)
   input: Array<"text" | "image">;
   cost: {
     input: number;

@@ -80,6 +80,15 @@ const OLLAMA_DEFAULT_COST = {
   cacheWrite: 0,
 };
 
+// Nominal cost for Ollama cloud models to indicate they are not free.
+// Actual costs vary by model and subscription tier.
+const OLLAMA_CLOUD_COST = {
+  input: 0.001,
+  output: 0.002,
+  cacheRead: 0,
+  cacheWrite: 0,
+};
+
 interface OllamaModel {
   name: string;
   modified_at: string;
@@ -115,14 +124,17 @@ async function discoverOllamaModels(): Promise<ModelDefinitionConfig[]> {
     }
     return data.models.map((model) => {
       const modelId = model.name;
-      const isReasoning =
-        modelId.toLowerCase().includes("r1") || modelId.toLowerCase().includes("reasoning");
+      const lowerModelId = modelId.toLowerCase();
+      const isReasoning = lowerModelId.includes("r1") || lowerModelId.includes("reasoning");
+      // Detect cloud models by naming convention (e.g., "kimi-k2.5:cloud", "gpt-oss:120b-cloud")
+      const isCloud = lowerModelId.includes(":cloud") || lowerModelId.endsWith("-cloud");
       return {
         id: modelId,
         name: modelId,
         reasoning: isReasoning,
+        cloud: isCloud,
         input: ["text"],
-        cost: OLLAMA_DEFAULT_COST,
+        cost: isCloud ? OLLAMA_CLOUD_COST : OLLAMA_DEFAULT_COST,
         contextWindow: OLLAMA_DEFAULT_CONTEXT_WINDOW,
         maxTokens: OLLAMA_DEFAULT_MAX_TOKENS,
       };
@@ -485,12 +497,16 @@ export async function resolveImplicitProviders(params: {
     break;
   }
 
-  // Ollama provider - only add if explicitly configured
-  const ollamaKey =
-    resolveEnvApiKeyVarName("ollama") ??
-    resolveApiKeyFromProfiles({ provider: "ollama", store: authStore });
-  if (ollamaKey) {
-    providers.ollama = { ...(await buildOllamaProvider()), apiKey: ollamaKey };
+  // Ollama provider - auto-detect if running locally (no API key required)
+  const ollamaProvider = await buildOllamaProvider();
+  if (ollamaProvider.models.length > 0) {
+    // Ollama doesn't require a real API key, but OpenClaw needs one set for the provider.
+    // Use env var if set, otherwise use a placeholder.
+    const ollamaKey =
+      resolveEnvApiKeyVarName("ollama") ??
+      resolveApiKeyFromProfiles({ provider: "ollama", store: authStore }) ??
+      "local";
+    providers.ollama = { ...ollamaProvider, apiKey: ollamaKey };
   }
 
   return providers;
